@@ -19,12 +19,12 @@ pub fn build(b: *std.Build) void {
         .name = "lmdb",
         // In this case the main source file is merely a path, however, in more
         // complicated build scripts, this could be a generated file.
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .cwd_relative = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
 
-    exe.addIncludePath(.{ .path = "./lmdb/libraries/liblmdb" });
+    exe.addIncludePath(.{ .cwd_relative = "./lmdb/libraries/liblmdb" });
 
     exe.addCSourceFiles(.{ .files = &.{
         "./lmdb/libraries/liblmdb/midl.c",
@@ -64,10 +64,21 @@ pub fn build(b: *std.Build) void {
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const unit_tests = b.addTest(.{
-        .root_source_file = .{ .path = "src/main.zig" },
+        .root_source_file = .{ .cwd_relative = "src/main.zig" },
         .target = target,
         .optimize = optimize,
     });
+
+    unit_tests.addIncludePath(.{ .cwd_relative = "./lmdb/libraries/liblmdb" });
+
+    unit_tests.addCSourceFiles(.{ .files = &.{
+        "./lmdb/libraries/liblmdb/midl.c",
+        "./lmdb/libraries/liblmdb/mdb.c",
+    } });
+
+    unit_tests.linkLibC();
+
+    const test_bin = b.addInstallBinFile(unit_tests.getEmittedBin(), "./lmdb_test");
 
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
@@ -76,4 +87,6 @@ pub fn build(b: *std.Build) void {
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&unit_tests.step);
+    test_step.dependOn(&test_bin.step);
 }

@@ -3,88 +3,146 @@ const lmdb = @cImport(@cInclude("lmdb.h"));
 
 const print = std.debug.print;
 
-pub fn Lmdb(comptime KeySize: comptime_int) type {
-    _ = KeySize;
-    return struct {
-        pub fn init(comptime path: []const u8) @This() {
-            var res: @This() = undefined;
-
-            _ = lmdb.mdb_env_create(&res.env);
-            // mdb_env_set_maxreaders(env, 1);
-            // mdb_env_set_maxdbs(env, 1); // named databases
-            // mdb_env_set_mapsize(env, 1024*1024);
-
-            _ = lmdb.mdb_env_open(res.env, path.ptr, 0, 0o664);
-            // /*MDB_FIXEDMAP |MDB_NOSYNC |MDB_NOSUBDIR*/
-
-            _ = lmdb.mdb_txn_begin(res.env, null, 0, &res.txn);
-            _ = lmdb.mdb_dbi_open(res.txn, null, 0, &res.dbi);
-
-            return res;
-        }
-
-        pub fn deinit(self: @This()) void {
-            _ = lmdb.mdb_txn_commit(self.txn);
-            _ = lmdb.mdb_dbi_close(self.env, self.dbi);
-            _ = lmdb.mdb_env_close(self.env);
-        }
-
-        pub fn get(self: @This(), comptime T: type, key: []const u8) ?T {
-            var k = lmdb.MDB_val{
-                .mv_data = @ptrFromInt(@intFromPtr(key.ptr)),
-                .mv_size = key.len,
-            };
-
-            var v: lmdb.MDB_val = undefined;
-
-            const res = lmdb.mdb_get(self.txn, self.dbi, &k, &v);
-
-            if (res == 0 and v.mv_size == @sizeOf(T)) {
-                if (v.mv_data) |data| {
-                    return @as(*T, @ptrFromInt(@intFromPtr(data))).*;
-                }
-            }
-
+fn get(txn: ?*lmdb.MDB_txn, dbi: lmdb.MDB_dbi, k: anytype, comptime T: type) ?T {
+    var key = lmdb.MDB_val{
+        .mv_size = @sizeOf(@TypeOf(k)),
+        .mv_data = @constCast(@ptrCast(&k)),
+    };
+    var val: lmdb.MDB_val = undefined;
+    return switch (lmdb.mdb_get(txn, dbi, &key, &val)) {
+        0 => @as(*T, @ptrFromInt(@intFromPtr(val.mv_data))).*,
+        else => |err| {
+            _ = err;
+            // print("get err: {}\n", .{err});
             return null;
-        }
-
-        pub fn put(self: @This(), comptime T: type, key: []const u8, val: T) void {
-            var k = lmdb.MDB_val{
-                .mv_data = @ptrFromInt(@intFromPtr(key.ptr)),
-                .mv_size = key.len,
-            };
-
-            var v = lmdb.MDB_val{
-                .mv_data = @ptrFromInt(@intFromPtr(&val)),
-                .mv_size = @sizeOf(T),
-            };
-
-            const res = lmdb.mdb_put(self.txn, self.dbi, &k, &v, 0);
-            _ = res;
-
-            // return val;
-        }
-
-        env: ?*lmdb.MDB_env,
-        dbi: lmdb.MDB_dbi,
-        txn: ?*lmdb.MDB_txn,
+        },
     };
 }
 
-pub fn main() !void {
-    var db = Lmdb(16).init("./db");
-    defer db.deinit();
+fn put(txn: ?*lmdb.MDB_txn, dbi: lmdb.MDB_dbi, k: anytype, v: anytype) void {
+    var key = lmdb.MDB_val{
+        .mv_size = @sizeOf(@TypeOf(k)),
+        .mv_data = @constCast(@ptrCast(&k)),
+    };
+    var val = lmdb.MDB_val{
+        .mv_size = @sizeOf(@TypeOf(v)),
+        .mv_data = @constCast(@ptrCast(&v)),
+    };
+    switch (lmdb.mdb_put(txn, dbi, &key, &val, 0)) {
+        0 => {},
+        else => |err| {
+            print("put err: {}\n", .{err});
+        },
+    }
+}
 
-    var testKey = [_]u8{0} ** 16;
-    @memcpy(testKey[0..5], "abcde");
-    // @memcpy(testKey[5..10], "abcde");
+pub fn main() void {
+    var env: ?*lmdb.MDB_env = undefined;
+    _ = lmdb.mdb_env_create(&env);
+    _ = lmdb.mdb_env_set_maxdbs(env, 10);
+    _ = lmdb.mdb_env_set_mapsize(env, 1024 * 1024 * 120);
+    _ = lmdb.mdb_env_open(env, "./db1", lmdb.MDB_NOSYNC | lmdb.MDB_WRITEMAP, 0o664);
+    defer lmdb.mdb_env_close(env);
 
-    const u_1 = db.get(u8, &testKey);
-    print("u1: {?}\n", .{u_1});
+    for (0..1000000) |i| {
+        var txn: ?*lmdb.MDB_txn = undefined;
+        switch (lmdb.mdb_txn_begin(env, null, 0, &txn)) {
+            0 => {},
+            else => |err| {
+                print("txn err: {}\n", .{err});
+            },
+        }
 
-    var u_2 = db.get(u8, "abcde" ++ "12345");
-    db.put(u8, "abcde" ++ "12345", u_2.? + 1);
+        var db: lmdb.MDB_dbi = undefined;
+        _ = lmdb.mdb_dbi_open(txn, "subdb2", lmdb.MDB_CREATE | lmdb.MDB_INTEGERKEY, &db);
+        if (i == 0) {
+            var db_stat: lmdb.MDB_stat = undefined;
+            _ = lmdb.mdb_stat(txn, db, &db_stat);
+            // print("{}\n", .{db_stat});
+        }
+        defer lmdb.mdb_dbi_close(env, db);
 
-    u_2 = db.get(u8, "abcde" ++ "12345");
-    print("u2: {?}\n", .{u_2});
+        const Val = struct {
+            a: u64,
+            b: i64,
+            c: [16]u8,
+        };
+
+        var new_val = Val{
+            .a = 123,
+            .b = -123,
+            .c = undefined,
+        };
+        std.mem.copyForwards(u8, &new_val.c, "a c efghabcdefgh");
+
+        const key: u64 = i + 1000;
+        if (get(txn, db, key, Val)) |val| {
+            if (i % 100000 == 0) {
+                print("{}: {}\n", .{ i, val });
+            }
+            new_val = val;
+            new_val.a += 1;
+            new_val.b -= 1;
+            std.mem.copyForwards(u8, &new_val.c, "a c efghabcdefgh");
+        } else {
+            if (i % 100000 == 0) {
+                print("not found\n", .{});
+            }
+        }
+
+        put(txn, db, key, new_val);
+
+        switch (lmdb.mdb_txn_commit(txn)) {
+            0 => {},
+            lmdb.MDB_MAP_FULL => {
+                print("resize\n", .{});
+                _ = lmdb.mdb_env_set_mapsize(env, 0);
+            },
+            else => |err| {
+                print("commit err: {}\n", .{err});
+            },
+        }
+    }
+
+    switch (lmdb.mdb_env_sync(env, 1)) {
+        0 => {},
+        else => |err| {
+            print("sync err: {}\n", .{err});
+        },
+    }
+
+    // var env_info: lmdb.MDB_envinfo = undefined;
+    // _ = lmdb.mdb_env_info(env, &env_info);
+
+    // var env_stat: lmdb.MDB_stat = undefined;
+    // _ = lmdb.mdb_env_stat(env, &env_stat);
+
+    // print("{}\n", .{env_info});
+    // print("{}\n", .{env_stat});
+
+    print("done!\n", .{});
+}
+
+test "hash" {
+    const pw = "affeaffe";
+
+    var hash_buffer: [128]u8 = undefined;
+
+    var buffer: [1024 * 1024]u8 = undefined;
+    var alloc = std.heap.FixedBufferAllocator.init(&buffer);
+
+    const result = try std.crypto.pwhash.argon2.strHash(pw, .{
+        .allocator = alloc.allocator(),
+        .params = std.crypto.pwhash.argon2.Params.fromLimits(1000, 1024 * 10),
+    }, &hash_buffer);
+
+    print("{s}\n", .{result});
+
+    if (std.crypto.pwhash.argon2.strVerify(result, "affeaffe", .{
+        .allocator = alloc.allocator(),
+    })) {
+        print("verified\n", .{});
+    } else |err| {
+        print("not verified: {}\n", .{err});
+    }
 }
