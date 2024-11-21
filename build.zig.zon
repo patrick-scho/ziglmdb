@@ -1,0 +1,9 @@
+.{
+    .name = "lmdb",
+    .version = "0.0.0",
+    .paths = .{
+        "src/lmdb.zig",
+        "build.zig",
+        "build.zig.zon",
+    },
+}

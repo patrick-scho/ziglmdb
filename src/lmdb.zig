@@ -59,8 +59,10 @@ pub fn Cursor(comptime K: type, comptime V: type) type {
             var val: lmdb.MDB_val = undefined;
             return switch (lmdb.mdb_cursor_get(self.ptr, &key, &val, @intFromEnum(flags))) {
                 0 => {
-                    k.* = @as(*align(1) K, @ptrCast(key.mv_data)).*;
-                    return @as(?*align(1) V, @ptrCast(val.mv_data)).?.*;
+                    k.* = std.mem.bytesToValue(K, key.mv_data.?);
+                    return std.mem.bytesToValue(V, val.mv_data.?);
+                    //k.* = @as(*align(1) K, @ptrCast(key.mv_data)).*;
+                    //return @as(?*align(1) V, @ptrCast(val.mv_data)).?.*;
                 },
                 lmdb.MDB_NOTFOUND => null,
                 else => |err| {
@@ -136,7 +138,10 @@ pub fn Dbi(comptime K: type, comptime V: type) type {
             };
             var val: lmdb.MDB_val = undefined;
             return switch (lmdb.mdb_get(self.txn.ptr, self.ptr, &key, &val)) {
-                0 => @as(?*align(1) V, @ptrCast(val.mv_data)).?.*,
+                0 => {
+                    return std.mem.bytesToValue(V, val.mv_data.?);
+                    //@as(?*align(1) V, @ptrCast(val.mv_data)).?.*
+                },
                 else => |err| {
                     std.debug.print("get err: {}\n", .{err});
                     return null;
