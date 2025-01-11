@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    mod.addIncludePath(.{ .cwd_relative = "./lmdb/libraries/liblmdb" });
+    mod.addIncludePath(.{ .src_path = .{ .owner = b, .sub_path = "lmdb/libraries/liblmdb" } });
 
     mod.addCSourceFiles(.{ .files = &.{
         "./lmdb/libraries/liblmdb/midl.c",
@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    unit_tests.addIncludePath(.{ .cwd_relative = "./lmdb/libraries/liblmdb" });
+    unit_tests.addIncludePath(.{ .src_path = .{ .owner = b, .sub_path = "lmdb/libraries/liblmdb" } });
     unit_tests.addCSourceFiles(.{ .files = &.{
         "./lmdb/libraries/liblmdb/midl.c",
         "./lmdb/libraries/liblmdb/mdb.c",
