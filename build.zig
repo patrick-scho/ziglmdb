@@ -2,42 +2,56 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod = b.addModule("lmdb", .{
-        .root_source_file = .{ .src_path = .{ .owner = b, .sub_path = "src/lmdb.zig" } },
-        // .root_source_file = .{ .cwd_relative = "src/lmdb.zig" },
+    const lmdb = b.addModule("lmdb", .{
+        .root_source_file = b.path("src/lmdb.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    mod.addIncludePath(.{ .src_path = .{ .owner = b, .sub_path = "lmdb/libraries/liblmdb" } });
-
-    mod.addCSourceFiles(.{ .files = &.{
+    lmdb.addIncludePath(b.path("lmdb/libraries/liblmdb"));
+    lmdb.addCSourceFiles(.{ .files = &.{
         "./lmdb/libraries/liblmdb/midl.c",
         "./lmdb/libraries/liblmdb/mdb.c",
     } });
+    lmdb.link_libc = true;
 
-    const unit_tests = b.addTest(.{
-        .root_source_file = .{ .cwd_relative = "src/lmdb.zig" },
+    const db = b.addModule("db", .{
+        .root_source_file = b.path("src/db.zig"),
+    });
+    db.addImport("lmdb", lmdb);
+
+    const lmdb_tests = b.addTest(.{
+        .root_source_file = b.path("src/lmdb.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    unit_tests.addIncludePath(.{ .src_path = .{ .owner = b, .sub_path = "lmdb/libraries/liblmdb" } });
-    unit_tests.addCSourceFiles(.{ .files = &.{
+    lmdb_tests.addIncludePath(b.path("lmdb/libraries/liblmdb"));
+    lmdb_tests.addCSourceFiles(.{ .files = &.{
         "./lmdb/libraries/liblmdb/midl.c",
         "./lmdb/libraries/liblmdb/mdb.c",
     } });
-    unit_tests.linkLibC();
+    lmdb_tests.linkLibC();
 
-    const test_bin = b.addInstallBinFile(unit_tests.getEmittedBin(), "./lmdb_test");
+    const db_tests = b.addTest(.{
+        .root_source_file = b.path("src/db.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    db_tests.root_module.addImport("lmdb", lmdb);
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
+    const lmdb_test_bin = b.addInstallBinFile(lmdb_tests.getEmittedBin(), "./lmdb_test");
+    const db_test_bin = b.addInstallBinFile(db_tests.getEmittedBin(), "./db_test");
+
+    const run_lmdb_tests = b.addRunArtifact(lmdb_tests);
+    const run_db_tests = b.addRunArtifact(db_tests);
 
     const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&run_unit_tests.step);
-    test_step.dependOn(&unit_tests.step);
-    test_step.dependOn(&test_bin.step);
+    test_step.result_cached = false;
+    test_step.dependOn(&run_lmdb_tests.step);
+    test_step.dependOn(&lmdb_tests.step);
+    test_step.dependOn(&run_db_tests.step);
+    test_step.dependOn(&db_tests.step);
+    test_step.dependOn(&lmdb_test_bin.step);
+    test_step.dependOn(&db_test_bin.step);
 }
