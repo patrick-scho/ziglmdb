@@ -584,7 +584,7 @@ test "db" {
 //     const db = List.init(txn, "b", u32);
 // }
 
-test "maplist" {
+test "set" {
     var env = try lmdb.Env.open("db", 1024 * 1024 * 1);
     // env.sync();
     defer env.close();
@@ -593,6 +593,76 @@ test "maplist" {
     defer txn.commit() catch {};
 
     var dbi = try txn.dbi("abc");
+
+    const A = struct {
+        ml: Set(usize),
+    };
+
+    var a: A = undefined;
+    const a_idx: u64 = 27;
+    if (try dbi.has(a_idx)) {
+        a = try dbi.get(a_idx, A);
+    } else {
+        a = A{ .ml = try Set(usize).init(txn) };
+        try dbi.put(a_idx, a);
+    }
+
+    var ml = try a.ml.open(txn);
+
+    const len = ml.len();
+    std.debug.print("{}\n", .{len});
+    try ml.append(len);
+    std.debug.print("{}\n", .{try ml.has(len)});
+    var it = ml.iterator();
+    while (it.next()) |i| {
+        std.debug.print("{}\n", .{i});
+    }
+}
+
+test "list" {
+    var env = try lmdb.Env.open("db", 1024 * 1024 * 1);
+    // env.sync();
+    defer env.close();
+
+    var txn = try env.txn();
+    defer txn.commit() catch {};
+
+    var dbi = try txn.dbi("def");
+
+    const A = struct {
+        ml: List(usize),
+    };
+
+    var a: A = undefined;
+    const a_idx: u64 = 27;
+    if (try dbi.has(a_idx)) {
+        a = try dbi.get(a_idx, A);
+    } else {
+        a = A{ .ml = try List(usize).init(txn) };
+        try dbi.put(a_idx, a);
+    }
+
+    var ml = try a.ml.open(txn);
+
+    const len = ml.len();
+    std.debug.print("{}\n", .{len});
+    const newest = try ml.append(len * 10);
+    std.debug.print("{}: {}\n", .{ newest, try ml.get(newest) });
+    var it = ml.iterator();
+    while (it.next()) |i| {
+        std.debug.print("{}: {}\n", .{ i.key, i.val });
+    }
+}
+
+test "setlist" {
+    var env = try lmdb.Env.open("db", 1024 * 1024 * 1);
+    // env.sync();
+    defer env.close();
+
+    var txn = try env.txn();
+    defer txn.commit() catch {};
+
+    var dbi = try txn.dbi("ghi");
 
     const A = struct {
         ml: SetList(usize, usize),
