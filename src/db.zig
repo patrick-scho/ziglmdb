@@ -183,6 +183,12 @@ pub fn SetView(comptime K: type) type {
 
             try self.dbi.del(self.item_idx(k));
         }
+        pub fn clear(self: *Self) !void {
+            var it = self.iterator();
+            while (it.next()) |i| {
+                try self.del(i);
+            }
+        }
         pub fn has(self: Self, k: K) !bool {
             return self.dbi.has(self.item_idx(k));
         }
@@ -357,6 +363,12 @@ pub fn ListView(comptime V: type) type {
 
             try self.dbi.del(self.item_idx(k));
         }
+        pub fn clear(self: *Self) !void {
+            var it = self.iterator();
+            while (it.next()) |kv| {
+                try self.del(kv.key);
+            }
+        }
         pub fn len(self: Self) usize {
             return self.head.len;
         }
@@ -512,6 +524,12 @@ pub fn SetListView(comptime K: type, comptime V: type) type {
             try self.head_update();
 
             try self.dbi.del(self.item_idx(k));
+        }
+        pub fn clear(self: *Self) !void {
+            var it = self.iterator();
+            while (it.next()) |kv| {
+                try self.del(kv.key);
+            }
         }
         pub fn has(self: Self, k: K) !bool {
             return self.dbi.has(self.item_idx(k));
