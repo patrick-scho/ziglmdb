@@ -76,6 +76,7 @@ pub fn Set(comptime K: type) type {
         idx: ?Index = null,
 
         const Self = @This();
+        pub const Key = K;
         pub const Index = u64;
         pub const View = SetView(K);
 
@@ -186,7 +187,7 @@ pub fn SetView(comptime K: type) type {
         pub fn clear(self: *Self) !void {
             var it = self.iterator();
             while (it.next()) |i| {
-                try self.del(i);
+                try self.del(i.key);
             }
         }
         pub fn has(self: Self, k: K) !bool {
@@ -200,7 +201,7 @@ pub fn SetView(comptime K: type) type {
             idx: ?K,
             dir: enum { Forward, Backward },
 
-            pub fn next(self: *Iterator) ?K {
+            pub fn next(self: *Iterator) ?struct { key: K } {
                 if (self.idx != null) {
                     const k = self.idx.?;
                     const item = self.sv.item_get(k) catch return null;
@@ -208,7 +209,7 @@ pub fn SetView(comptime K: type) type {
                         .Forward => item.next,
                         .Backward => item.prev,
                     };
-                    return k;
+                    return .{ .key = k };
                 } else {
                     return null;
                 }
@@ -236,6 +237,8 @@ pub fn List(comptime V: type) type {
 
         const Self = @This();
         pub const Index = u64;
+        pub const Key = u64;
+        pub const Val = V;
         pub const View = ListView(V);
 
         fn open_dbi(txn: lmdb.Txn) !lmdb.Dbi {
@@ -410,11 +413,13 @@ pub fn ListView(comptime V: type) type {
 
 pub fn SetList(comptime K: type, comptime V: type) type {
     return struct {
-        idx: ?Index = null,
-
         const Self = @This();
         pub const Index = u64;
+        pub const Key = K;
+        pub const Val = V;
         pub const View = SetListView(K, V);
+
+        idx: ?Index = null,
 
         fn open_dbi(txn: lmdb.Txn) !lmdb.Dbi {
             return try txn.dbi("SetList");
