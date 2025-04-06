@@ -71,176 +71,17 @@ pub const Prng = struct {
         }
     }
 };
-pub fn Set(comptime K: type) type {
-    return struct {
-        idx: ?Index = null,
 
+fn SetListBase(comptime K: type, comptime V: type) type {
+    return struct {
         const Self = @This();
+        pub const Index = u64;
         pub const Key = K;
-        pub const Index = u64;
-        pub const View = SetView(K);
+        pub const Val = V;
+        pub const View = SetListViewBase(K, V);
 
-        fn open_dbi(txn: lmdb.Txn) !lmdb.Dbi {
-            return try txn.dbi("SetList");
-        }
-        pub fn init(txn: lmdb.Txn) !Self {
-            const head = View.Head{};
-            const dbi = try open_dbi(txn);
-            const idx = try Prng.gen(dbi, Index);
-            try dbi.put(idx, head);
-            return .{ .idx = idx };
-        }
-        pub fn open(self: Self, txn: lmdb.Txn) !View {
-            // create new head
-            if (self.idx == null) {
-                return error.NotInitialized;
-            }
-            // get head from dbi
-            const dbi = try open_dbi(txn);
-            const head = try dbi.get(self.idx.?, View.Head);
-            return .{
-                .dbi = dbi,
-                .idx = self.idx.?,
-                .head = head,
-            };
-        }
-    };
-}
-
-pub fn SetView(comptime K: type) type {
-    return struct {
-        const Self = @This();
-        const ItemIndex = struct { Set(K).Index, K };
-
-        pub const Head = struct {
-            len: usize = 0,
-            first: ?K = null,
-            last: ?K = null,
-        };
-        pub const Item = struct {
-            next: ?K = null,
-            prev: ?K = null,
-        };
-
-        dbi: lmdb.Dbi,
-        idx: Set(K).Index,
-        head: Head,
-
-        fn item_idx(self: Self, k: K) ItemIndex {
-            return .{ self.idx, k };
-        }
-        fn item_get(self: Self, k: K) !Item {
-            return try self.dbi.get(self.item_idx(k), Item);
-        }
-        fn item_put(self: Self, k: K, item: Item) !void {
-            try self.dbi.put(self.item_idx(k), item);
-        }
-        fn head_update(self: Self) !void {
-            try self.dbi.put(self.idx, self.head);
-        }
-        pub fn append(self: *Self, k: K) !void {
-            if (self.head.len == 0) {
-                const item = Item{};
-                try self.item_put(k, item);
-
-                self.head.len = 1;
-                self.head.first = k;
-                self.head.last = k;
-                try self.head_update();
-            } else {
-                const prev_idx = self.head.last.?;
-                var prev = try self.item_get(prev_idx);
-
-                const item = Item{ .prev = prev_idx };
-                try self.item_put(k, item);
-
-                prev.next = k;
-                try self.item_put(prev_idx, prev);
-
-                self.head.last = k;
-                self.head.len += 1;
-                try self.head_update();
-            }
-        }
-        pub fn del(self: *Self, k: K) !void {
-            const item = try self.item_get(k);
-
-            if (item.prev != null) {
-                var prev = try self.item_get(item.prev.?);
-                prev.next = item.next;
-                try self.item_put(item.prev.?, prev);
-            }
-
-            if (item.next != null) {
-                var next = try self.item_get(item.next.?);
-                next.prev = item.prev;
-                try self.item_put(item.next.?, next);
-            }
-
-            if (self.head.first == k) self.head.first = item.next;
-            if (self.head.last == k) self.head.last = item.prev;
-            self.head.len -= 1;
-            try self.head_update();
-
-            try self.dbi.del(self.item_idx(k));
-        }
-        pub fn clear(self: *Self) !void {
-            var it = self.iterator();
-            while (it.next()) |i| {
-                try self.del(i.key);
-            }
-        }
-        pub fn has(self: Self, k: K) !bool {
-            return self.dbi.has(self.item_idx(k));
-        }
-        pub fn len(self: Self) usize {
-            return self.head.len;
-        }
-        pub const Iterator = struct {
-            sv: SetView(K),
-            idx: ?K,
-            dir: enum { Forward, Backward },
-
-            pub fn next(self: *Iterator) ?struct { key: K } {
-                if (self.idx != null) {
-                    const k = self.idx.?;
-                    const item = self.sv.item_get(k) catch return null;
-                    self.idx = switch (self.dir) {
-                        .Forward => item.next,
-                        .Backward => item.prev,
-                    };
-                    return .{ .key = k };
-                } else {
-                    return null;
-                }
-            }
-        };
-        pub fn iterator(self: Self) Iterator {
-            return .{
-                .sv = self,
-                .idx = self.head.first,
-                .dir = .Forward,
-            };
-        }
-        pub fn reverse_iterator(self: Self) Iterator {
-            return .{
-                .sv = self,
-                .idx = self.head.last,
-                .dir = .Backward,
-            };
-        }
-    };
-}
-pub fn List(comptime V: type) type {
-    return struct {
         idx: ?Index = null,
 
-        const Self = @This();
-        pub const Index = u64;
-        pub const Key = u64;
-        pub const Val = V;
-        pub const View = ListView(V);
-
         fn open_dbi(txn: lmdb.Txn) !lmdb.Dbi {
             return try txn.dbi("SetList");
         }
@@ -268,11 +109,12 @@ pub fn List(comptime V: type) type {
     };
 }
 
-pub fn ListView(comptime V: type) type {
+fn SetListViewBase(comptime K: type, comptime V: type) type {
     return struct {
         const Self = @This();
-        const K = u64;
-        const ItemIndex = struct { List(V).Index, K };
+        pub const ItemIndex = struct { SetListBase(K, V).Index, Key };
+        pub const Key = K;
+        pub const Val = V;
 
         pub const Head = struct {
             len: usize = 0,
@@ -286,7 +128,7 @@ pub fn ListView(comptime V: type) type {
         };
 
         dbi: lmdb.Dbi,
-        idx: List(V).Index,
+        idx: SetListBase(K, V).Index,
         head: Head,
 
         fn item_idx(self: Self, k: K) ItemIndex {
@@ -300,49 +142,6 @@ pub fn ListView(comptime V: type) type {
         }
         fn head_update(self: Self) !void {
             try self.dbi.put(self.idx, self.head);
-        }
-        fn gen(self: Self) !K {
-            // TODO: limit loop
-            while (true) {
-                const k = try Prng.gen(self.dbi, K);
-                if (!try self.dbi.has(self.item_idx(k))) {
-                    return k;
-                }
-            }
-        }
-        pub fn append(self: *Self, v: V) !K {
-            if (self.head.len == 0) {
-                const k = try self.gen();
-                const item = Item{ .data = v };
-                try self.item_put(k, item);
-
-                self.head.len = 1;
-                self.head.first = k;
-                self.head.last = k;
-                try self.head_update();
-
-                return k;
-            } else {
-                const prev_idx = self.head.last.?;
-                var prev = try self.item_get(prev_idx);
-
-                const k = try self.gen();
-                const item = Item{ .prev = prev_idx, .data = v };
-                try self.item_put(k, item);
-
-                prev.next = k;
-                try self.item_put(prev_idx, prev);
-
-                self.head.last = k;
-                self.head.len += 1;
-                try self.head_update();
-
-                return k;
-            }
-        }
-        pub fn get(self: Self, k: K) !V {
-            const item = try self.item_get(k);
-            return item.data;
         }
         pub fn del(self: *Self, k: K) !void {
             const item = try self.item_get(k);
@@ -375,179 +174,45 @@ pub fn ListView(comptime V: type) type {
         pub fn len(self: Self) usize {
             return self.head.len;
         }
-        pub const Iterator = struct {
-            lv: ListView(V),
-            idx: ?K,
-            dir: enum { Forward, Backward },
-
-            pub fn next(self: *Iterator) ?struct { key: K, val: V } {
-                if (self.idx != null) {
-                    const k = self.idx.?;
-                    const item = self.lv.item_get(k) catch return null;
-                    self.idx = switch (self.dir) {
-                        .Forward => item.next,
-                        .Backward => item.prev,
-                    };
-                    return .{ .key = k, .val = item.data };
-                } else {
-                    return null;
-                }
-            }
-        };
-        pub fn iterator(self: Self) Iterator {
-            return .{
-                .lv = self,
-                .idx = self.head.first,
-                .dir = .Forward,
-            };
-        }
-        pub fn reverse_iterator(self: Self) Iterator {
-            return .{
-                .lv = self,
-                .idx = self.head.last,
-                .dir = .Backward,
-            };
-        }
-    };
-}
-
-pub fn SetList(comptime K: type, comptime V: type) type {
-    return struct {
-        const Self = @This();
-        pub const Index = u64;
-        pub const Key = K;
-        pub const Val = V;
-        pub const View = SetListView(K, V);
-
-        idx: ?Index = null,
-
-        fn open_dbi(txn: lmdb.Txn) !lmdb.Dbi {
-            return try txn.dbi("SetList");
-        }
-        pub fn init(txn: lmdb.Txn) !Self {
-            const head = View.Head{};
-            const dbi = try open_dbi(txn);
-            const idx = try Prng.gen(dbi, Index);
-            try dbi.put(idx, head);
-            return .{ .idx = idx };
-        }
-        pub fn open(self: Self, txn: lmdb.Txn) !View {
-            // create new head
-            if (self.idx == null) {
-                return error.NotInitialized;
-            }
-            // get head from dbi
-            const dbi = try open_dbi(txn);
-            const head = try dbi.get(self.idx.?, View.Head);
-            return .{
-                .dbi = dbi,
-                .idx = self.idx.?,
-                .head = head,
-            };
-        }
-    };
-}
-
-pub fn SetListView(comptime K: type, comptime V: type) type {
-    return struct {
-        const Self = @This();
-        const ItemIndex = struct { SetList(K, V).Index, K };
-
-        pub const Head = struct {
-            len: usize = 0,
-            first: ?K = null,
-            last: ?K = null,
-        };
-        pub const Item = struct {
-            next: ?K = null,
-            prev: ?K = null,
-            data: V,
-        };
-
-        dbi: lmdb.Dbi,
-        idx: SetList(K, V).Index,
-        head: Head,
-
-        fn item_idx(self: Self, k: K) ItemIndex {
-            return .{ self.idx, k };
-        }
-        fn item_get(self: Self, k: K) !Item {
-            return try self.dbi.get(self.item_idx(k), Item);
-        }
-        fn item_put(self: Self, k: K, item: Item) !void {
-            try self.dbi.put(self.item_idx(k), item);
-        }
-        fn head_update(self: Self) !void {
-            try self.dbi.put(self.idx, self.head);
-        }
-        pub fn append(self: *Self, k: K, v: V) !void {
+        pub fn append(self: *Self, key: Key, val: Val) !void {
             if (self.head.len == 0) {
-                const item = Item{ .data = v };
-                try self.item_put(k, item);
+                const item = Item{ .data = val };
+                try self.item_put(key, item);
 
                 self.head.len = 1;
-                self.head.first = k;
-                self.head.last = k;
+                self.head.first = key;
+                self.head.last = key;
                 try self.head_update();
             } else {
                 const prev_idx = self.head.last.?;
                 var prev = try self.item_get(prev_idx);
 
-                const item = Item{ .prev = prev_idx, .data = v };
-                try self.item_put(k, item);
+                const item = Item{ .prev = prev_idx, .data = val };
+                try self.item_put(key, item);
 
-                prev.next = k;
+                prev.next = key;
                 try self.item_put(prev_idx, prev);
 
-                self.head.last = k;
+                self.head.last = key;
                 self.head.len += 1;
                 try self.head_update();
             }
         }
-        pub fn get(self: Self, k: K) !V {
-            const item = try self.item_get(k);
+        pub fn get(self: Self, key: Key) !Val {
+            const item = try self.item_get(key);
             return item.data;
         }
-        pub fn del(self: *Self, k: K) !void {
-            const item = try self.item_get(k);
-
-            if (item.prev != null) {
-                var prev = try self.item_get(item.prev.?);
-                prev.next = item.next;
-                try self.item_put(item.prev.?, prev);
-            }
-
-            if (item.next != null) {
-                var next = try self.item_get(item.next.?);
-                next.prev = item.prev;
-                try self.item_put(item.next.?, next);
-            }
-
-            if (self.head.first == k) self.head.first = item.next;
-            if (self.head.last == k) self.head.last = item.prev;
-            self.head.len -= 1;
-            try self.head_update();
-
-            try self.dbi.del(self.item_idx(k));
-        }
-        pub fn clear(self: *Self) !void {
-            var it = self.iterator();
-            while (it.next()) |kv| {
-                try self.del(kv.key);
-            }
-        }
-        pub fn has(self: Self, k: K) !bool {
-            return self.dbi.has(self.item_idx(k));
-        }
-        pub fn len(self: Self) usize {
-            return self.head.len;
+        pub fn has(self: Self, key: Key) !bool {
+            return self.dbi.has(self.item_idx(key));
         }
         pub const Iterator = struct {
-            slv: SetListView(K, V),
+            pub const Result = ?struct { key: K, val: V };
+
+            slv: SetListViewBase(K, V),
             idx: ?K,
             dir: enum { Forward, Backward },
 
-            pub fn next(self: *Iterator) ?struct { key: K, val: V } {
+            pub fn next(self: *Iterator) Result {
                 if (self.idx != null) {
                     const k = self.idx.?;
                     const item = self.slv.item_get(k) catch return null;
@@ -574,6 +239,158 @@ pub fn SetListView(comptime K: type, comptime V: type) type {
                 .idx = self.head.last,
                 .dir = .Backward,
             };
+        }
+    };
+}
+
+pub fn Set(comptime K: type) type {
+    return struct {
+        pub const Key = K;
+        pub const Val = void;
+
+        pub const Base = SetListBase(Key, Val);
+        pub const View = struct {
+            const ViewBase = SetListViewBase(Key, Val);
+
+            base: ViewBase,
+
+            pub fn del(self: *@This(), key: Key) !void {
+                try self.base.del(key);
+            }
+            pub fn clear(self: *@This()) !void {
+                try self.base.clear();
+            }
+            pub fn len(self: @This()) usize {
+                return self.base.len();
+            }
+            pub fn append(self: *@This(), key: Key) !void {
+                try self.base.append(key, {});
+            }
+            pub fn has(self: @This(), key: Key) !bool {
+                return try self.base.has(key);
+            }
+            pub fn iterator(self: @This()) ViewBase.Iterator {
+                return self.base.iterator();
+            }
+            pub fn reverse_iterator(self: @This()) ViewBase.Iterator {
+                return self.base.reverse_iterator();
+            }
+        };
+
+        base: Base,
+
+        pub fn init(txn: lmdb.Txn) !@This() {
+            return .{ .base = try Base.init(txn) };
+        }
+        pub fn open(self: @This(), txn: lmdb.Txn) !View {
+            return .{ .base = try self.base.open(txn) };
+        }
+    };
+}
+
+pub fn List(comptime V: type) type {
+    return struct {
+        pub const Key = u64;
+        pub const Val = V;
+
+        pub const Base = SetListBase(Key, Val);
+        pub const View = struct {
+            const ViewBase = SetListViewBase(Key, Val);
+
+            base: ViewBase,
+
+            fn gen(self: @This()) !Key {
+                // TODO: limit loop
+                while (true) {
+                    const key = try Prng.gen(self.base.dbi, Key);
+                    if (!try self.base.dbi.has(self.base.item_idx(key))) {
+                        return key;
+                    }
+                }
+            }
+            pub fn del(self: *@This(), key: Key) !void {
+                try self.base.del(key);
+            }
+            pub fn clear(self: *@This()) !void {
+                try self.base.clear();
+            }
+            pub fn len(self: @This()) usize {
+                return self.base.len();
+            }
+            pub fn append(self: *@This(), val: Val) !Key {
+                const key = try self.gen();
+                try self.base.append(key, val);
+                return key;
+            }
+            pub fn get(self: @This(), key: Key) !Val {
+                return try self.base.get(key);
+            }
+            pub fn has(self: @This(), key: Key) !bool {
+                return try self.base.has(key);
+            }
+            pub fn iterator(self: @This()) ViewBase.Iterator {
+                return self.base.iterator();
+            }
+            pub fn reverse_iterator(self: @This()) ViewBase.Iterator {
+                return self.base.reverse_iterator();
+            }
+        };
+
+        base: Base,
+
+        pub fn init(txn: lmdb.Txn) !@This() {
+            return .{ .base = try Base.init(txn) };
+        }
+        pub fn open(self: @This(), txn: lmdb.Txn) !View {
+            return .{ .base = try self.base.open(txn) };
+        }
+    };
+}
+
+pub fn SetList(comptime K: type, comptime V: type) type {
+    return struct {
+        pub const Key = K;
+        pub const Val = V;
+
+        pub const Base = SetListBase(Key, Val);
+        pub const View = struct {
+            const ViewBase = SetListViewBase(Key, Val);
+
+            base: ViewBase,
+
+            pub fn del(self: *@This(), key: Key) !void {
+                try self.base.del(key);
+            }
+            pub fn clear(self: *@This()) !void {
+                try self.base.clear();
+            }
+            pub fn len(self: @This()) usize {
+                return self.base.len();
+            }
+            pub fn append(self: *@This(), key: Key, val: Val) !void {
+                try self.base.append(key, val);
+            }
+            pub fn get(self: @This(), key: Key) !Val {
+                return try self.base.get(key);
+            }
+            pub fn has(self: @This(), key: Key) !bool {
+                return try self.base.has(key);
+            }
+            pub fn iterator(self: @This()) ViewBase.Iterator {
+                return self.base.iterator();
+            }
+            pub fn reverse_iterator(self: @This()) ViewBase.Iterator {
+                return self.base.reverse_iterator();
+            }
+        };
+
+        base: Base,
+
+        pub fn init(txn: lmdb.Txn) !@This() {
+            return .{ .base = try Base.init(txn) };
+        }
+        pub fn open(self: @This(), txn: lmdb.Txn) !View {
+            return .{ .base = try self.base.open(txn) };
         }
     };
 }
