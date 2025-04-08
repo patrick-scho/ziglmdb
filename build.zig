@@ -9,10 +9,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lmdb.addIncludePath(b.path("lmdb/libraries/liblmdb"));
+    lmdb.addIncludePath(b.path("lmdb"));
     lmdb.addCSourceFiles(.{ .files = &.{
-        "./lmdb/libraries/liblmdb/midl.c",
-        "./lmdb/libraries/liblmdb/mdb.c",
+        "./lmdb/midl.c",
+        "./lmdb/mdb.c",
     } });
     lmdb.link_libc = true;
 
@@ -26,10 +26,10 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lmdb_tests.addIncludePath(b.path("lmdb/libraries/liblmdb"));
+    lmdb_tests.addIncludePath(b.path("lmdb"));
     lmdb_tests.addCSourceFiles(.{ .files = &.{
-        "./lmdb/libraries/liblmdb/midl.c",
-        "./lmdb/libraries/liblmdb/mdb.c",
+        "./lmdb/midl.c",
+        "./lmdb/mdb.c",
     } });
     lmdb_tests.linkLibC();
 
