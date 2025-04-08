@@ -4,6 +4,10 @@
     .paths = .{
         "src/lmdb.zig",
         "src/db.zig",
+        "lmdb/lmdb.h",
+        "lmdb/mdb.c",
+        "lmdb/midl.h",
+        "lmdb/midl.c",
         "build.zig",
         "build.zig.zon",
     },
