@@ -53,7 +53,7 @@ pub const Cursor = struct {
 
     pub fn get(self: Self, k: anytype, comptime V: type, flags: Flags) !?V {
         const k_ti = @typeInfo(@TypeOf(k));
-        const K = k_ti.Pointer.child;
+        const K = k_ti.pointer.child;
 
         var key = lmdb.MDB_val{
             .mv_size = @sizeOf(K),
@@ -90,7 +90,7 @@ pub const Cursor = struct {
 
     pub fn has(self: Self, k: anytype, flags: Flags) !bool {
         const k_ti = @typeInfo(@TypeOf(k));
-        const K = k_ti.Pointer.child;
+        const K = k_ti.pointer.child;
 
         var key = lmdb.MDB_val{
             .mv_size = @sizeOf(K),
