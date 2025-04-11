@@ -27,13 +27,14 @@ pub fn Db(comptime K: type, comptime V: type) type {
             return try self.dbi.has(k);
         }
         pub const Iterator = struct {
+            pub const Result = struct { key: K, val: V };
             cursor: lmdb.Cursor,
             k: ?K,
             v: ?V,
 
-            pub fn next(self: *Iterator) ?struct { key: K, val: V } {
+            pub fn next(self: *Iterator) ?Result {
                 if (self.k != null and self.v != null) {
-                    const result = .{ .key = self.k.?, .val = self.v.? };
+                    const result = Result{ .key = self.k.?, .val = self.v.? };
 
                     var k = self.k.?;
                     self.v = self.cursor.get(&k, V, .Next) catch return null;
@@ -206,13 +207,13 @@ fn SetListViewBase(comptime K: type, comptime V: type) type {
             return self.dbi.has(self.item_idx(key));
         }
         pub const Iterator = struct {
-            pub const Result = ?struct { key: K, val: V };
+            pub const Result = struct { key: K, val: V };
 
             slv: SetListViewBase(K, V),
             idx: ?K,
             dir: enum { Forward, Backward },
 
-            pub fn next(self: *Iterator) Result {
+            pub fn next(self: *Iterator) ?Result {
                 if (self.idx != null) {
                     const k = self.idx.?;
                     const item = self.slv.item_get(k) catch return null;
